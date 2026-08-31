@@ -1276,6 +1276,23 @@ final class ProcessTapController: ProcessTapControlling {
         primaryResources.destroy()
     }
 
+    /// Peak magnitude across every sample in an interleaved input buffer. RT-safe:
+    /// no allocations, no locks, no Foundation. One `abs`+compare per sample.
+    /// Evaluates the whole frame (all channels) so a signal present on any channel
+    /// — including mono content panned to a non-zero channel — is detected.
+    @inline(__always)
+    nonisolated static func maxSamplePeak(
+        samples: UnsafePointer<Float>,
+        count: Int
+    ) -> Float {
+        var peak: Float = 0
+        for i in 0..<count {
+            let absSample = abs(samples[i])
+            if absSample > peak { peak = absSample }
+        }
+        return peak
+    }
+
     /// Advance the output-gate state machine for one buffer and return the multiplier
     /// to apply to this buffer's output. Pure function; no class state. RT-safe:
     /// no allocations, no locks, no Foundation. One `cos` per buffer (not per sample).
@@ -1561,10 +1578,8 @@ final class ProcessTapController: ProcessTapControlling {
             if totalSamplesThisBuffer == 0 {
                 totalSamplesThisBuffer = sampleCount / channels
             }
-            for i in stride(from: 0, to: sampleCount, by: channels) {
-                let absSample = abs(inputSamples[i])
-                if absSample > maxPeak { maxPeak = absSample }
-            }
+            let bufferPeak = Self.maxSamplePeak(samples: inputSamples, count: sampleCount)
+            if bufferPeak > maxPeak { maxPeak = bufferPeak }
         }
         let rawPeak = min(maxPeak, 1.0)
 
